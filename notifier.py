@@ -75,22 +75,54 @@ def send_alert(message: str) -> None:
     _send_telegram(message)
 
 
+def _stops_label(n: int) -> str:
+    return "Non-stop" if n == 0 else f"{n} stop(s)"
+
+
+def _pax_summary(adults: int, children: int, infants: int) -> str:
+    parts = [f"{adults} adult(s)"]
+    if children:
+        parts.append(f"{children} child(ren)")
+    if infants:
+        parts.append(f"{infants} lap infant(s)")
+    return ", ".join(parts)
+
+
 def format_alert(
     watch_name: str,
     offer,
     alert_type: str,
     prev_price: Optional[float],
+    adults: int = 1,
+    children: int = 0,
+    infants: int = 0,
 ) -> str:
-    stops_text = "Non-stop" if offer.stops == 0 else f"{offer.stops} stop(s)"
-
     lines = [
         f"*Flight Alert — {watch_name}*",
-        f"Route: {offer.origin} -> {offer.destination}",
-        f"Departure: {offer.departure_at}",
-        f"Duration: {offer.duration}  |  {stops_text}",
-        f"Airline: {offer.airline}",
+        f"Passengers: {_pax_summary(adults, children, infants)}",
         "",
-        f"Price: *{offer.currency} {offer.price:,.0f}*",
+        f"Outbound:  {offer.origin} -> {offer.destination}",
+        f"  Departure: {offer.departure_at}",
+        f"  Duration:  {offer.duration}  |  {_stops_label(offer.stops)}",
+        f"  Airline:   {offer.airline}",
+    ]
+    if offer.max_layover_hours > 0:
+        lines.append(f"  Max layover: {offer.max_layover_hours:.1f}h")
+
+    if offer.return_departure_at:
+        lines += [
+            "",
+            f"Return:    {offer.destination} -> {offer.origin}",
+            f"  Departure: {offer.return_departure_at}",
+            f"  Duration:  {offer.return_duration}  |  {_stops_label(offer.return_stops)}",
+            f"  Airline:   {offer.return_airline}",
+        ]
+        if offer.return_max_layover_hours and offer.return_max_layover_hours > 0:
+            lines.append(f"  Max layover: {offer.return_max_layover_hours:.1f}h")
+
+    lines += [
+        "",
+        f"Total price (all passengers): *{offer.currency} {offer.price:,.0f}*",
     ]
 
     if alert_type == "price_drop" and prev_price is not None:
@@ -99,9 +131,6 @@ def format_alert(
             f"Price drop: {drop_pct:.1f}% (was {offer.currency} {prev_price:,.0f})"
         )
     elif alert_type == "below_threshold":
-        lines.append("This flight is at or below your target price threshold.")
-
-    if offer.max_layover_hours > 0:
-        lines.append(f"Max layover: {offer.max_layover_hours:.1f}h")
+        lines.append("This is below your target price threshold.")
 
     return "\n".join(lines)

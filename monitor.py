@@ -11,7 +11,7 @@ import os
 import sys
 import time
 from datetime import date, timedelta
-from typing import List
+from typing import List, Optional, Tuple
 
 import schedule
 import yaml
@@ -57,11 +57,31 @@ def date_range(start: str, end: str) -> List[str]:
     return dates
 
 
+def build_date_combos(
+    watch: dict, max_combos: int
+) -> List[Tuple[str, Optional[str]]]:
+    """Return (departure_date, return_date|None) pairs to check."""
+    dr = watch.get("departure_date_range", {})
+    dep_start: str = dr.get("from", date.today().isoformat())
+    dep_end: str = dr.get("to", dep_start)
+    dep_dates = date_range(dep_start, dep_end)
+
+    rr = watch.get("return_date_range")
+    if rr:
+        ret_dates = date_range(rr["from"], rr["to"])
+        combos = [(d, r) for d in dep_dates for r in ret_dates]
+    else:
+        combos = [(d, None) for d in dep_dates]
+
+    return combos[:max_combos]
+
+
 def run_monitor() -> None:
     logger.info("=== Flight monitor run started ===")
     config = load_config()
     client = AmadeusClient()
     drop_threshold: float = config.get("price_drop_threshold_pct", 5)
+    max_combos: int = config.get("max_dates_per_watch", 30)
 
     for watch in config.get("watches", []):
         name: str = watch["name"]
@@ -69,63 +89,73 @@ def run_monitor() -> None:
         destination: str = watch["destination"].upper()
         currency: str = watch.get("currency", "USD")
         adults: int = watch.get("adults", 1)
+        children: int = watch.get("children", 0)
+        infants: int = watch.get("infants", 0)
         cabin: str = watch.get("cabin_class", "ECONOMY")
         max_price = watch.get("max_price")
         max_stops = watch.get("max_stops")
         max_layover = watch.get("max_layover_hours")
 
-        dr = watch.get("departure_date_range", {})
-        start_date: str = dr.get("from", date.today().isoformat())
-        end_date: str = dr.get("to", start_date)
-        max_dates: int = config.get("max_dates_per_watch", 30)
-
-        dates = date_range(start_date, end_date)[:max_dates]
+        combos = build_date_combos(watch, max_combos)
         logger.info(
-            "Checking watch '%s' (%s->%s) across %d date(s)",
-            name, origin, destination, len(dates),
+            "Checking watch '%s' (%s->%s) — %d date combination(s), "
+            "%d adult(s) %d child(ren) %d infant(s)",
+            name, origin, destination, len(combos), adults, children, infants,
         )
 
-        for dep_date in dates:
+        for dep_date, ret_date in combos:
             offers = client.search_cheapest(
                 origin=origin,
                 destination=destination,
                 departure_date=dep_date,
+                return_date=ret_date,
                 adults=adults,
+                children=children,
+                infants=infants,
                 currency=currency,
                 cabin_class=cabin,
                 max_stops=max_stops,
                 max_layover_hours=max_layover,
             )
 
+            label = f"{dep_date}" + (f" / ret {ret_date}" if ret_date else "")
+
             if not offers:
-                logger.info("  %s: no matching offers", dep_date)
+                logger.info("  %s: no matching offers", label)
                 continue
 
             best = offers[0]
             logger.info(
-                "  %s: best %s %.0f  (%d stop(s), airline %s)",
-                dep_date, currency, best.price, best.stops, best.airline,
+                "  %s: best %s %.0f  (%d stop(s) out, airline %s)",
+                label, currency, best.price, best.stops, best.airline,
             )
 
+            ret_date_key = ret_date or ""
             save_snapshot(
-                name, origin, destination, dep_date,
+                name, origin, destination, dep_date, ret_date_key,
                 best.price, currency, best.airline, best.stops,
             )
 
-            prev_price = get_previous_best_price(name, origin, destination, dep_date)
+            prev_price = get_previous_best_price(
+                name, origin, destination, dep_date, ret_date_key
+            )
             alert_type = None
 
-            if max_price is not None and best.price <= max_price:
+            if max_price is not None and best.price < max_price:
                 alert_type = "below_threshold"
             elif prev_price is not None:
                 drop_pct = (prev_price - best.price) / prev_price * 100
                 if drop_pct >= drop_threshold:
                     alert_type = "price_drop"
 
-            if alert_type and not already_alerted(name, origin, destination, dep_date, best.price):
-                msg = format_alert(name, best, alert_type, prev_price)
+            if alert_type and not already_alerted(
+                name, origin, destination, dep_date, ret_date_key, best.price
+            ):
+                msg = format_alert(name, best, alert_type, prev_price,
+                                   adults, children, infants)
                 send_alert(msg)
-                log_alert(name, origin, destination, dep_date, best.price, alert_type)
+                log_alert(name, origin, destination, dep_date, ret_date_key,
+                          best.price, alert_type)
                 logger.info("  Alert sent (%s)", alert_type)
 
     logger.info("=== Flight monitor run complete ===")

@@ -1,41 +1,29 @@
 # Daily Flight Monitor — Configuration
-# Edit this file to define your watches and schedule.
 
 # Daily run time (24-hour HH:MM, server local time)
 schedule:
   time: "08:00"
 
-# Maximum departure dates to check per watch per run.
-# Keeps API call count manageable for wide date ranges.
+# Maximum (departure × return) date combinations to check per watch per run.
 max_dates_per_watch: 30
 
-# Send an alert when today's best price is at least this % cheaper
-# than the previous run's best price (regardless of max_price).
+# Alert when today's best price dropped by at least this % from yesterday's best.
 price_drop_threshold_pct: 5
 
 watches:
-  - name: "New York to London (Summer)"
-    origin: "JFK"
-    destination: "LHR"
+  - name: "Tokyo to Koh Samui (Summer 2026)"
+    origin: "NRT"
+    destination: "USM"
     departure_date_range:
-      from: "2026-06-01"
-      to: "2026-08-31"
+      from: "2026-07-29"   # July 30 -1
+      to: "2026-07-31"     # July 30 +1
+    return_date_range:
+      from: "2026-08-15"   # Aug 16 -1
+      to: "2026-08-17"     # Aug 16 +1
     currency: "USD"
-    max_price: 500          # alert if best price is at or below this
-    max_stops: 1            # 0 = nonstop only | 1 = up to 1 stop | omit for any
-    max_layover_hours: 4    # omit to skip layover filter
-    adults: 1
-    cabin_class: "ECONOMY"  # ECONOMY | PREMIUM_ECONOMY | BUSINESS | FIRST
-
-  - name: "Los Angeles to Tokyo (Autumn)"
-    origin: "LAX"
-    destination: "NRT"
-    departure_date_range:
-      from: "2026-09-01"
-      to: "2026-10-31"
-    currency: "USD"
-    max_price: 700
-    max_stops: 1
-    max_layover_hours: 6
+    max_price: 1800        # alert if total price for all passengers is below this
+    max_stops: 1           # 0 = nonstop only | 1 = up to 1 stop per leg
     adults: 2
+    children: 1            # age 4 (counts as child: age 2–11)
+    infants: 1             # lap infant (under 2, no separate seat)
     cabin_class: "ECONOMY"
