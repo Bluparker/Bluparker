@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.pyc
+
+# Runtime data
+flight_history.db
+flight_monitor.log
+
+# Credentials
+.env
